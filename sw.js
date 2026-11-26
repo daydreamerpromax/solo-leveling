@@ -1,4 +1,4 @@
-const CACHE = 'system-tracker-v1';
+const CACHE = 'system-tracker-v4';
 const ASSETS = [
   './',
   './index.html',
