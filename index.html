@@ -307,14 +307,16 @@ th:first-child,td:first-child{text-align:left;padding-left:0;font-weight:600;min
 (function(){
   /* ---------- constants ---------- */
   var DAY=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
-  var MIN_GYM=4, MAX_GYM=5, KG_PER_LEVEL=1000, PLAN_VER=2;
+  var MIN_GYM=4, MAX_GYM=5, PLAN_VER=2;
+  /* Progressive RPG XP curve: LVL 0->1 = 1,000 kg, +250 kg added per level */
+  var XP_BASE=1000, XP_STEP=250;
   var HUNTER_RANKS=[
     {id:"E",name:"E-Rank",title:"Awakened Novice",minLvl:0},
     {id:"D",name:"D-Rank",title:"Iron Grinder",minLvl:15},
     {id:"C",name:"C-Rank",title:"Dungeon Striker",minLvl:40},
-    {id:"B",name:"B-Rank",title:"Vanguard Hunter",minLvl:100},
-    {id:"A",name:"A-Rank",title:"Elite Raid Captain",minLvl:250},
-    {id:"S",name:"S-Rank",title:"Shadow Monarch",minLvl:500}
+    {id:"B",name:"B-Rank",title:"Vanguard Hunter",minLvl:75},
+    {id:"A",name:"A-Rank",title:"Elite Raid Captain",minLvl:120},
+    {id:"S",name:"S-Rank",title:"Shadow Monarch",minLvl:200}
   ];
   var ORDER=["C","B","S","L"];
   var TYPES={
@@ -611,7 +613,7 @@ th:first-child,td:first-child{text-align:left;padding-left:0;font-weight:600;min
   function habitStatus(a,n){return n>=a.target?"hit":(n>=a.min?"min":"behind")}
   function setCh(s,i,c){return s.substring(0,i)+c+s.substring(i+1)}
 
-  /* ---------- gym, volume XP & hunter rank helpers ---------- */
+  /* ---------- gym, progressive RPG XP & hunter rank helpers ---------- */
   function blankGymWeek(){return {d:[null,null,null,null,null,null,null],u:0}}
   function peekGym(k){return S.gtWeeks[k]||blankGymWeek()}
   function wkGym(k){if(!S.gtWeeks[k])S.gtWeeks[k]=blankGymWeek();return S.gtWeeks[k]}
@@ -637,6 +639,22 @@ th:first-child,td:first-child{text-align:left;padding-left:0;font-weight:600;min
     });
     return vol;
   }
+  function xpNeedForLevel(lvl){return XP_BASE + lvl * XP_STEP}
+  function volumeToLevelInfo(vol){
+    var v=Math.max(0,vol||0), lvl=0, need=xpNeedForLevel(0);
+    while(v>=need){
+      v-=need;
+      lvl++;
+      need=xpNeedForLevel(lvl);
+    }
+    return {
+      lvl:lvl,
+      cur:v,
+      need:need,
+      left:Math.max(0,need-v),
+      pct:Math.min(100,Math.max(0,(v/need)*100))
+    };
+  }
   function getHunterRank(lvl){
     var cur=HUNTER_RANKS[0], next=null;
     for(var i=0;i<HUNTER_RANKS.length;i++){
@@ -649,21 +667,18 @@ th:first-child,td:first-child{text-align:left;padding-left:0;font-weight:600;min
   }
   function xpCardInner(){
     var vol=totalLifetimeVolume();
-    var lvl=Math.floor(vol/KG_PER_LEVEL);
-    var rem=vol%KG_PER_LEVEL;
-    var pct=Math.min(100,Math.max(0,(rem/KG_PER_LEVEL)*100));
-    var left=Math.max(0,KG_PER_LEVEL-rem);
-    var rk=getHunterRank(lvl);
+    var info=volumeToLevelInfo(vol);
+    var rk=getHunterRank(info.lvl);
     var nextTxt=rk.next
-      ?'Next: '+rk.next.name+' at LVL '+rk.next.minLvl+' ('+(rk.next.minLvl-lvl)+' LVL left)'
+      ?'Next: '+rk.next.name+' at LVL '+rk.next.minLvl+' ('+(rk.next.minLvl-info.lvl)+' LVL left)'
       :'MAX RANK ACHIEVED';
-    return '<div class="xphead"><div class="xpleft"><span class="rankbadge rank-'+rk.cur.id+'">'+rk.cur.name+'</span><span class="xplvl">LVL <b>'+lvl.toLocaleString()+'</b></span></div><span class="xpvol">'+vol.toLocaleString(undefined,{maximumFractionDigits:1})+' kg</span></div>'+
-           '<div class="xpbar"><i style="width:'+pct.toFixed(1)+'%"></i></div>'+
-           '<div class="xpfoot"><span>'+pct.toFixed(0)+'% to LVL '+(lvl+1).toLocaleString()+' (1,000 kg = 1 LVL)</span><span>'+left.toFixed(1)+' kg left</span></div>'+
+    return '<div class="xphead"><div class="xpleft"><span class="rankbadge rank-'+rk.cur.id+'">'+rk.cur.name+'</span><span class="xplvl">LVL <b>'+info.lvl.toLocaleString()+'</b></span></div><span class="xpvol">'+vol.toLocaleString(undefined,{maximumFractionDigits:1})+' kg total</span></div>'+
+           '<div class="xpbar"><i style="width:'+info.pct.toFixed(1)+'%"></i></div>'+
+           '<div class="xpfoot"><span>'+Math.round(info.cur).toLocaleString()+' / '+info.need.toLocaleString()+' kg ('+info.pct.toFixed(0)+'%)</span><span>'+info.left.toLocaleString(undefined,{maximumFractionDigits:1})+' kg to LVL '+(info.lvl+1).toLocaleString()+'</span></div>'+
            '<div class="xpnext"><span>Title: <b>'+rk.cur.title+'</b></span><span>'+nextTxt+'</span></div>';
   }
   function rankLadderHtml(){
-    var lvl=Math.floor(totalLifetimeVolume()/KG_PER_LEVEL);
+    var lvl=volumeToLevelInfo(totalLifetimeVolume()).lvl;
     var curId=getHunterRank(lvl).cur.id;
     return '<div class="rankgrid">'+HUNTER_RANKS.map(function(r){
       var unlocked=lvl>=r.minLvl;
@@ -926,7 +941,7 @@ th:first-child,td:first-child{text-align:left;padding-left:0;font-weight:600;min
     }
     if(S.msg)out+='<div class="tip warn">'+h(S.msg)+'</div>';
 
-    // Hunter Rank, Volume Level & XP Bar
+    // Hunter Rank, Volume Level & Progressive XP Bar
     out+='<div class="card xpcard" id="xpbox">'+xpCardInner()+'</div>';
 
     // Quick status strip: Protein + Splits
@@ -1059,7 +1074,7 @@ th:first-child,td:first-child{text-align:left;padding-left:0;font-weight:600;min
   function renderProgress(){
     var hrows=habitHistoryRows(), grows=gymHistoryRows(), out='';
     out+='<div class="card xpcard" id="xpbox">'+xpCardInner()+'</div>';
-    out+='<div class="card"><h2>Hunter Rank Progression</h2>'+rankLadderHtml()+'<p class="muted">Ranks unlock automatically as your lifetime gym volume grows (1,000 kg = 1 Level).</p></div>';
+    out+='<div class="card"><h2>Hunter Rank Progression</h2>'+rankLadderHtml()+'<p class="muted">Progressive RPG XP curve: LVL 1 requires 1,000 kg, increasing by +250 kg every level.</p></div>';
 
     out+='<div class="card"><h2>Quest Consistency</h2>';
     if(!hrows.length)out+='<p class="muted">Past weeks appear here once tracked.</p>';
